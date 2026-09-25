@@ -56,16 +56,41 @@ document.addEventListener('DOMContentLoaded', () => {
   let wsConnected = false;
   let socket      = null;
 
-  // ─── Dynamic API & WebSocket Endpoints ─────────────────────────────────────
+  // ─── Dynamic API & WebSocket Endpoints (Cloud & Local Support) ────────────
+  const urlParams = new URLSearchParams(window.location.search);
+  const paramBackend = urlParams.get('backend');
+  if (paramBackend) {
+    localStorage.setItem('AERIS_BACKEND_URL', paramBackend);
+  }
+
+  const storedBackend = localStorage.getItem('AERIS_BACKEND_URL') || (window.AERIS_BACKEND_URL || null);
   const envBackend = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BACKEND_URL)
     ? import.meta.env.VITE_BACKEND_URL.replace(/^https?:\/\//, '').replace(/^wss?:\/\//, '')
     : null;
   const isDevPort = window.location.port === '3000' || window.location.port === '5173';
-  const apiHost = envBackend || (isDevPort ? `${window.location.hostname || 'localhost'}:8000` : window.location.host);
-  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const httpProtocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-  const API_BASE_URL = `${httpProtocol}//${apiHost}`;
-  const WS_URL = `${wsProtocol}//${apiHost}/ws/telemetry`;
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+  let rawHost = storedBackend 
+    ? storedBackend.replace(/^https?:\/\//, '').replace(/^wss?:\/\//, '').replace(/\/$/, '')
+    : (envBackend || (isDevPort ? `${window.location.hostname || 'localhost'}:8000` : (isLocalhost ? `${window.location.hostname}:8000` : window.location.host)));
+
+  const isHttps = window.location.protocol === 'https:' || (storedBackend && storedBackend.startsWith('https'));
+  const wsProtocol = isHttps ? 'wss:' : 'ws:';
+  const httpProtocol = isHttps ? 'https:' : 'http:';
+  const API_BASE_URL = `${httpProtocol}//${rawHost}`;
+  const WS_URL = `${wsProtocol}//${rawHost}/ws/telemetry`;
+
+  // Global helper to switch backend easily in console or UI
+  window.setBackendUrl = (url) => {
+    if (!url) {
+      localStorage.removeItem('AERIS_BACKEND_URL');
+      toast('Backend URL reset to default', 2500);
+    } else {
+      localStorage.setItem('AERIS_BACKEND_URL', url.trim());
+      toast(`Backend URL set to: ${url.trim()}`, 2500);
+    }
+    setTimeout(() => location.reload(), 600);
+  };
 
   // ─── Component Inspector Spec Table (Rotax 914 Aero Piston Architecture) ────
   const COMP_SPECS = {
@@ -2350,6 +2375,20 @@ document.addEventListener('DOMContentLoaded', () => {
         renderDisconnectedLiveState({ status: 'BACKEND OFFLINE', source: 'DISCONNECTED' });
       }
     }
+  }
+
+  // Allow manual backend URL configuration by clicking on backend status widget
+  const statusContainer = $('backend-status-text')?.parentElement;
+  if (statusContainer) {
+    statusContainer.style.cursor = 'pointer';
+    statusContainer.title = 'Click to configure/change Backend URL';
+    statusContainer.addEventListener('click', () => {
+      const current = localStorage.getItem('AERIS_BACKEND_URL') || API_BASE_URL;
+      const target = window.prompt('Configure AERIS-TWIN Backend URL (e.g., https://your-backend.onrender.com):', current);
+      if (target !== null) {
+        window.setBackendUrl(target);
+      }
+    });
   }
 
   // Initial state on page load: clean disconnected live state
